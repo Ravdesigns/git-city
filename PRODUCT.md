@@ -19,10 +19,10 @@ backend, no build step: one HTML file plus vendored three.js.
 - People who land, poke, and should immediately get what they are seeing.
 
 ## Brand voice
-Three words: cinematic, mechanical, playful. Nocturnal and atmospheric (a city
-at night seen from above), precise and technical (monospace, keyboard-driven),
-with a light, confident wink ("you reached HEAD", "match. munch. maybe more."
-energy). Lowercase, terse, technical-poetic. Never corporate, never cute.
+Three words: cinematic, friendly, playful. Nocturnal and atmospheric (a city
+at night seen from above), warm and rounded (Hanken Grotesk, lime-green accents,
+pill buttons with a circle-arrow), with a light, confident wink ("you reached
+HEAD"). Lowercase, terse. Never corporate, never cold.
 
 ## Tone of copy
 Lowercase. Short. Says the true thing plainly ("turn any repo into a skyline",
@@ -39,5 +39,5 @@ it has failed.
 1. The data IS the city. The mapping must stay legible (legend + hover inspect).
 2. Atmosphere over chrome. UI sits quietly at the edges; the scene is the hero.
 3. Offline-first, no backend, no secrets. Everything runs client-side.
-4. Identity is Zop.Dev DNA: dark, monospace, a single hot orange signature.
+4. Identity: the Lime design system in dark mode (see ../lime/) — green-dark night, Hanken Grotesk, a single lime-green signature.
 5. Reward exploration. There is always one more thing to poke (palette, fly).
