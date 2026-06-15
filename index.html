@@ -131,6 +131,37 @@
     color: #586271; font-size: 19px; cursor: pointer; transition: color 0.16s;
   }
   #gate-close:hover { color: #c0c5cc; }
+
+  /* ---- legend (how to read) ---- */
+  #legend { position: fixed; top: 96px; left: 24px; z-index: 18; max-width: 240px; }
+  .lg-head { display: flex; align-items: center; gap: 10px; font-size: 9px; letter-spacing: 0.22em; text-transform: uppercase; color: #5a626e; margin-bottom: 10px; }
+  .lg-head span { white-space: nowrap; }
+  .lg-head::after { content: ''; flex: 1; height: 1px; background: rgba(255,255,255,0.08); }
+  #legend-toggle { background: none; border: none; color: #5a626e; font: inherit; font-size: 14px; line-height: 1; cursor: pointer; padding: 0 2px; }
+  #legend-toggle:hover { color: #c0c5cc; }
+  .lg-row { display: flex; align-items: baseline; gap: 8px; font-size: 10.5px; letter-spacing: 0.03em; line-height: 1.75; color: #7e8692; }
+  .lg-ic { color: #d8b078; width: 12px; display: inline-block; text-align: center; flex: none; }
+  #lg-mode { color: #aeb6c0; }
+  .lg-swatches { display: flex; flex-wrap: wrap; gap: 5px 12px; margin-top: 9px; padding-left: 20px; }
+  .sw { display: inline-flex; align-items: center; gap: 6px; font-size: 9.5px; letter-spacing: 0.02em; color: #8a929c; }
+  .sw i { width: 8px; height: 8px; border-radius: 1px; flex: none; box-shadow: 0 0 6px rgba(255,255,255,0.12); }
+  #legend.collapsed #legend-body { display: none; }
+
+  /* ---- hover tooltip ---- */
+  #tip {
+    position: fixed; z-index: 40; pointer-events: none;
+    background: rgba(9,13,24,0.96); border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 4px; padding: 9px 11px; max-width: 300px;
+    box-shadow: 0 14px 40px rgba(0,0,0,0.55);
+    font-size: 11px; line-height: 1.5;
+  }
+  #tip.hidden { display: none; }
+  .tip-path { color: #eef1f5; font-size: 11.5px; word-break: break-all; margin-bottom: 4px; }
+  .tip-lines { font-size: 11px; margin-bottom: 5px; letter-spacing: 0.03em; }
+  .tip-lines .add { color: #7ec88a; }
+  .tip-lines .del { color: #e07a6a; }
+  .tip-meta { color: #767e8a; font-size: 10px; letter-spacing: 0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tip-author { color: #97a0ac; margin-top: 2px; }
 </style>
 </head>
 <body>
@@ -140,11 +171,27 @@
   <div id="building-count"></div>
 </div>
 <div id="sig"></div>
+
+<div id="legend">
+  <div class="lg-head"><span>how to read</span><button id="legend-toggle" type="button" aria-label="toggle legend">–</button></div>
+  <div id="legend-body">
+    <div class="lg-row"><span class="lg-ic">▮</span><span>one tower = a file in a commit</span></div>
+    <div class="lg-row"><span class="lg-ic">↕</span><span>height = lines added + removed</span></div>
+    <div class="lg-row"><span class="lg-ic">→</span><span>left → right = oldest → newest</span></div>
+    <div class="lg-row"><span class="lg-ic">◧</span><span>colour = <span id="lg-mode">file type</span></span></div>
+    <div id="lg-swatches" class="lg-swatches"></div>
+  </div>
+</div>
+
+<div id="tip" class="hidden"></div>
+
 <div id="help">
   <kbd>drag</kbd> rotate &nbsp;
   <kbd>scroll</kbd> zoom &nbsp;
   <kbd>R</kbd> reset &nbsp;
   <kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd> palette &nbsp;
+  <kbd>hover</kbd> inspect &nbsp;
+  <kbd>L</kbd> legend &nbsp;
   <kbd>G</kbd> new repo
 </div>
 
@@ -185,6 +232,11 @@
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { GammaCorrectionShader } from 'three/addons/shaders/GammaCorrectionShader.js';
 
 (function () {
   let data = window.COMMIT_DATA || { repo: '—', commits: [] };
@@ -201,6 +253,10 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
     hud.buildings.textContent = buildingCount + ' buildings';
   }
   updateHud();
+
+  // small helpers (esc guards against HTML in repo-derived strings)
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const hex = (n) => '#' + (n & 0xffffff).toString(16).padStart(6, '0');
 
   // -------- scene --------
   const scene = new THREE.Scene();
@@ -228,11 +284,24 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.1;
+  renderer.toneMappingExposure = 1.15;
   document.body.appendChild(renderer.domElement);
 
+  // -------- post-processing: bloom for cinematic city glow --------
+  const composer = new EffectComposer(renderer);
+  composer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  composer.setSize(window.innerWidth, window.innerHeight);
+  composer.addPass(new RenderPass(scene, camera));
+  const bloomPass = new UnrealBloomPass(
+    new THREE.Vector2(window.innerWidth, window.innerHeight),
+    0.42,  // strength
+    0.34,  // radius
+    0.45   // threshold — only the bright lights bloom, not building bodies
+  );
+  composer.addPass(bloomPass);
+
   // -------- lights --------
-  const hemi = new THREE.HemisphereLight(0x6090c8, 0x101820, 0.7);
+  const hemi = new THREE.HemisphereLight(0x5982b8, 0x0a1018, 0.42);
   scene.add(hemi);
 
   const moon = new THREE.DirectionalLight(0xe8d4a8, 1.1);
@@ -249,7 +318,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
   // -------- ground --------
   const groundGeo = new THREE.PlaneGeometry(16000, 16000, 1, 1);
   const groundMat = new THREE.MeshStandardMaterial({
-    color: 0x121d2e, roughness: 0.95, metalness: 0.0
+    color: 0x0b1322, roughness: 0.9, metalness: 0.05
   });
   const ground = new THREE.Mesh(groundGeo, groundMat);
   ground.rotation.x = -Math.PI / 2;
@@ -264,13 +333,18 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
   // Pre-baked extension → color maps for 3 palette modes.
   const EXT_PALETTES = {
     byExt: {
-      tsx: 0x6088c0, ts: 0x5878a8, js: 0xc9a847,
-      md: 0x7b8e66, json: 0xc9a847,
-      py: 0x9e6688, html: 0xc8865a,
-      css: 0xb85428, scss: 0xa84520,
-      png: 0xc8a878, jpg: 0xc8a878, svg: 0xa890c0, pdf: 0x8a4040,
-      yml: 0x707880, yaml: 0x707880, sh: 0x607060,
-      _default: 0x6a7280
+      ts: 0x4f86e0, tsx: 0x5b9cff, js: 0xffd24a, jsx: 0x5b9cff, mjs: 0xffd24a, cjs: 0xffd24a,
+      md: 0x9cc66a, mdx: 0x9cc66a, txt: 0x8a94a0,
+      json: 0xffc24a, json5: 0xffc24a,
+      py: 0xd17fb0, rb: 0xff6b6b, go: 0x4fd0e0, rs: 0xe8905a, java: 0xe0784a, php: 0x9b8cff,
+      html: 0xff8f5a, css: 0xff5a7a, scss: 0xe84a8a, sass: 0xe84a8a,
+      vue: 0x57d08a, svelte: 0xff5a3e, swift: 0xff7a4a, kt: 0xc08aff,
+      png: 0xd9b88a, jpg: 0xd9b88a, jpeg: 0xd9b88a, gif: 0xd9b88a, webp: 0xd9b88a,
+      svg: 0xc59cff, ico: 0xc59cff, pdf: 0xff6b6b,
+      yml: 0x9098a4, yaml: 0x9098a4, toml: 0x9098a4, lock: 0x6a7280, env: 0x9098a4,
+      sh: 0x7ec88a, bash: 0x7ec88a, zsh: 0x7ec88a,
+      c: 0x6f9cff, cpp: 0x6f9cff, h: 0x8fb0ff, hpp: 0x8fb0ff,
+      _default: 0x8a93a0
     },
     byAuthor: {}, // populated below
     mono:    { _default: 0x8a929c }
@@ -341,14 +415,15 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
         const color = colorFor(f, c, mode);
         const mat = new THREE.MeshStandardMaterial({
           color: color,
-          roughness: 0.62,
-          metalness: 0.08,
+          roughness: 0.5,
+          metalness: 0.18,
           emissive: color,
-          emissiveIntensity: 0.22
+          emissiveIntensity: 0.16
         });
         const mesh = new THREE.Mesh(geo, mat);
         mesh.position.set(x, y, z);
         mesh.rotation.y = (Math.random() - 0.5) * 0.08;
+        mesh.userData = { f, c };   // for hover inspect
         cityGroup.add(mesh);
       }
     }
@@ -360,7 +435,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
     cityGroup.traverse(m => {
       if (m.isMesh && m.geometry?.parameters?.height > 5) {
         const { width, height, depth } = m.geometry.parameters;
-        const n = Math.floor(height / 2);  // window count proportional to height
+        const n = Math.floor(height / 1.4);  // window count proportional to height
         for (let i = 0; i < n; i++) {
           // Pick a face
           const face = Math.floor(Math.random() * 4);
@@ -383,13 +458,14 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
     winGeo.setAttribute('position', new THREE.Float32BufferAttribute(windowPositions, 3));
     winGeo.setAttribute('color', new THREE.Float32BufferAttribute(windowColors, 3));
     const winMat = new THREE.PointsMaterial({
-      size: 1.2,
+      size: 1.7,
       vertexColors: true,
       transparent: true,
-      opacity: 0.95,
+      opacity: 1.0,
       sizeAttenuation: true,
       blending: THREE.AdditiveBlending,
-      depthWrite: false
+      depthWrite: false,
+      fog: false
     });
     const windows = new THREE.Points(winGeo, winMat);
     cityGroup.add(windows);
@@ -533,8 +609,40 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
     computeAuthorIndex();
     updateHud();
     buildCity(currentMode);
+    updateLegend();
     rebuildBackdrop();
     resetCamera();
+  }
+
+  // -------- legend: explains the encoding, updates with palette + data --------
+  const lgMode = document.getElementById('lg-mode');
+  const lgSwatches = document.getElementById('lg-swatches');
+  function updateLegend() {
+    if (currentMode === 'mono') {
+      lgMode.textContent = 'uniform';
+      lgSwatches.innerHTML = `<span class="sw"><i style="background:${hex(0x8a929c)}"></i>all files</span>`;
+      return;
+    }
+    if (currentMode === 'byAuthor') {
+      lgMode.textContent = 'author';
+      const seen = [];
+      for (const c of data.commits) if (!seen.includes(c.author)) seen.push(c.author);
+      lgSwatches.innerHTML = seen.slice(0, 6).map(a =>
+        `<span class="sw"><i style="background:${hex(authorColors[authorIndex[a]] || 0x8a929c)}"></i>${esc(a)}</span>`).join('');
+      return;
+    }
+    lgMode.textContent = 'file type';
+    const counts = {};
+    for (const c of data.commits) for (const f of c.files) {
+      const dot = f.path.lastIndexOf('.');
+      const ext = dot >= 0 ? f.path.slice(dot + 1).toLowerCase() : 'none';
+      counts[ext] = (counts[ext] || 0) + 1;
+    }
+    const top = Object.keys(counts).sort((a, b) => counts[b] - counts[a]).slice(0, 6);
+    lgSwatches.innerHTML = top.map(ext => {
+      const col = EXT_PALETTES.byExt[ext] || EXT_PALETTES.byExt._default;
+      return `<span class="sw"><i style="background:${hex(col)}"></i>${ext === 'none' ? 'other' : '.' + esc(ext)}</span>`;
+    }).join('');
   }
 
   // -------- github → city (client-side, anonymous) --------
@@ -638,20 +746,56 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
   document.querySelectorAll('.chip').forEach(ch =>
     ch.addEventListener('click', () => { gateInput.value = ch.dataset.repo; build(ch.dataset.repo); }));
 
+  // -------- hover a tower to inspect the file it maps to --------
+  const raycaster = new THREE.Raycaster();
+  const ndc = new THREE.Vector2();
+  const tip = document.getElementById('tip');
+  renderer.domElement.addEventListener('pointermove', (e) => {
+    if (!gate.classList.contains('hidden')) { tip.classList.add('hidden'); return; }
+    ndc.x = (e.clientX / window.innerWidth) * 2 - 1;
+    ndc.y = -(e.clientY / window.innerHeight) * 2 + 1;
+    raycaster.setFromCamera(ndc, camera);
+    const hits = raycaster.intersectObjects(cityGroup.children, false);
+    let obj = null;
+    for (const h of hits) { if (h.object.userData && h.object.userData.f) { obj = h.object; break; } }
+    if (!obj) { tip.classList.add('hidden'); renderer.domElement.style.cursor = ''; return; }
+    const f = obj.userData.f, c = obj.userData.c;
+    tip.innerHTML =
+      `<div class="tip-path">${esc(f.path)}</div>` +
+      `<div class="tip-lines"><span class="add">+${f.ins || 0}</span> &nbsp; <span class="del">−${f.dels || 0}</span> lines</div>` +
+      `<div class="tip-meta">${esc(c.hash)} · ${esc(c.subject)}</div>` +
+      `<div class="tip-meta tip-author">${esc(c.author)}</div>`;
+    tip.classList.remove('hidden');
+    tip.style.left = Math.min(e.clientX + 16, window.innerWidth - 312) + 'px';
+    tip.style.top = Math.min(e.clientY + 16, window.innerHeight - 96) + 'px';
+    renderer.domElement.style.cursor = 'crosshair';
+  });
+  renderer.domElement.addEventListener('pointerleave', () => tip.classList.add('hidden'));
+
+  // -------- legend collapse --------
+  const legendEl = document.getElementById('legend');
+  const legendBtn = document.getElementById('legend-toggle');
+  function toggleLegend() {
+    legendBtn.textContent = legendEl.classList.toggle('collapsed') ? '+' : '–';
+  }
+  legendBtn.addEventListener('click', toggleLegend);
+
   // -------- key handlers --------
   window.addEventListener('keydown', (e) => {
     if (!gate.classList.contains('hidden')) { if (e.key === 'Escape') closeGate(); return; }
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
     if (e.key === 'r' || e.key === 'R') resetCamera();
-    else if (e.key === '1') { currentMode = 'byExt';    buildCity(currentMode); }
-    else if (e.key === '2') { currentMode = 'byAuthor'; buildCity(currentMode); }
-    else if (e.key === '3') { currentMode = 'mono';     buildCity(currentMode); }
+    else if (e.key === '1') { currentMode = 'byExt';    buildCity(currentMode); updateLegend(); }
+    else if (e.key === '2') { currentMode = 'byAuthor'; buildCity(currentMode); updateLegend(); }
+    else if (e.key === '3') { currentMode = 'mono';     buildCity(currentMode); updateLegend(); }
+    else if (e.key === 'l' || e.key === 'L') toggleLegend();
     else if (e.key === 'g' || e.key === 'G') openGate();
   });
 
   // dress the world + frame the demo city on load, then greet first-time visitors
   rebuildBackdrop();
   resetCamera();
+  updateLegend();
   let seen = false;
   try { seen = !!localStorage.getItem('gc_seen'); } catch (e) {}
   if (!seen) openGate();
@@ -661,6 +805,8 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
+    composer.setSize(window.innerWidth, window.innerHeight);
+    bloomPass.setSize(window.innerWidth, window.innerHeight);
   });
 
   // -------- loop --------
@@ -674,7 +820,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
     }
     if (beaconLayer) beaconLayer.mat.opacity = Math.sin(t * 2.2) > 0.55 ? 1.0 : 0.07;
     controls.update();
-    renderer.render(scene, camera);
+    composer.render();
   }
   animate();
 })();
