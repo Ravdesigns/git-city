@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>git-city</title>
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: #060812; overflow: hidden; }
+  body { font-family: 'JetBrains Mono', Menlo, monospace; color: #c0c5cc; }
+  canvas { display: block; }
+  #hud {
+    position: fixed; top: 20px; left: 24px;
+    font-size: 11px; letter-spacing: 0.15em; text-transform: uppercase;
+    color: #6b7380; pointer-events: none;
+    line-height: 1.7;
+  }
+  #hud .accent { color: #d8b078; }
+  #help {
+    position: fixed; bottom: 20px; right: 24px;
+    font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: #4a5260; line-height: 1.8;
+    text-align: right;
+  }
+  #help kbd {
+    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 2px; padding: 1px 5px; color: #8a929c; margin: 0 2px;
+  }
+  #sig {
+    position: fixed; top: 24px; right: 24px;
+    width: 8px; height: 8px; background: #FF6B35;
+  }
+</style>
+</head>
+<body>
+<div id="hud">
+  <div class="accent" id="repo-label">— loading —</div>
+  <div id="commit-count"></div>
+  <div id="building-count"></div>
+</div>
+<div id="sig"></div>
+<div id="help">
+  <kbd>drag</kbd> rotate &nbsp;
+  <kbd>scroll</kbd> zoom &nbsp;
+  <kbd>R</kbd> reset &nbsp;
+  <kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd> palette
+</div>
+
+<script src="data.js"></script>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "./lib/three.module.js",
+    "three/addons/": "./lib/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+(function () {
+  const data = window.COMMIT_DATA;
+  if (!data) {
+    document.getElementById('hud').innerHTML = '<div style="color:#c84a4a">no data.js — run build.sh</div>';
+    return;
+  }
+
+  const buildingCount = data.commits.reduce((s, c) => s + c.files.length, 0);
+  document.getElementById('repo-label').textContent = data.repo;
+  document.getElementById('commit-count').textContent = data.commits.length + ' commits';
+  document.getElementById('building-count').textContent = buildingCount + ' buildings';
+
+  // -------- scene --------
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0a1224);
+  scene.fog = new THREE.FogExp2(0x0a1224, 0.0022);
+
+  const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 4000);
+  camera.position.set(200, 160, 300);
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.1;
+  document.body.appendChild(renderer.domElement);
+
+  // -------- lights --------
+  const hemi = new THREE.HemisphereLight(0x6090c8, 0x101820, 0.7);
+  scene.add(hemi);
+
+  const moon = new THREE.DirectionalLight(0xe8d4a8, 1.1);
+  moon.position.set(-200, 380, 120);
+  moon.target.position.set(0, 0, 0);
+  scene.add(moon);
+  scene.add(moon.target);
+
+  // soft fill from other side
+  const fill = new THREE.DirectionalLight(0x6088b8, 0.18);
+  fill.position.set(200, 80, -200);
+  scene.add(fill);
+
+  // -------- ground --------
+  const groundGeo = new THREE.PlaneGeometry(3000, 3000, 60, 60);
+  const groundMat = new THREE.MeshStandardMaterial({
+    color: 0x182838, roughness: 0.9, metalness: 0.0
+  });
+  const ground = new THREE.Mesh(groundGeo, groundMat);
+  ground.rotation.x = -Math.PI / 2;
+  scene.add(ground);
+
+  // ground grid — more visible
+  const grid = new THREE.GridHelper(2000, 40, 0x3a4d6c, 0x1f2c40);
+  grid.position.y = 0.05;
+  scene.add(grid);
+
+  // -------- palettes --------
+  // Pre-baked extension → color maps for 3 palette modes.
+  const EXT_PALETTES = {
+    byExt: {
+      tsx: 0x6088c0, ts: 0x5878a8, js: 0xc9a847,
+      md: 0x7b8e66, json: 0xc9a847,
+      py: 0x9e6688, html: 0xc8865a,
+      css: 0xb85428, scss: 0xa84520,
+      png: 0xc8a878, jpg: 0xc8a878, svg: 0xa890c0, pdf: 0x8a4040,
+      yml: 0x707880, yaml: 0x707880, sh: 0x607060,
+      _default: 0x6a7280
+    },
+    byAuthor: {}, // populated below
+    mono:    { _default: 0x8a929c }
+  };
+
+  // Author palette
+  const authorColors = [0xd8b078, 0x8aa898, 0x9e7890, 0x6088c0, 0xc88848, 0x8898c8];
+  const authorIndex = {};
+  let authIdx = 0;
+  for (const c of data.commits) {
+    if (!(c.author in authorIndex)) authorIndex[c.author] = authIdx++ % authorColors.length;
+  }
+
+  function colorFor(file, commit, mode) {
+    if (mode === 'mono') return 0x8a929c;
+    if (mode === 'byAuthor') return authorColors[authorIndex[commit.author]];
+    // byExt
+    const dot = file.path.lastIndexOf('.');
+    const ext = dot >= 0 ? file.path.slice(dot + 1).toLowerCase() : '_default';
+    return EXT_PALETTES.byExt[ext] || EXT_PALETTES.byExt._default;
+  }
+
+  // -------- city --------
+  let cityGroup = new THREE.Group();
+  scene.add(cityGroup);
+
+  function buildCity(mode) {
+    // Clear old
+    while (cityGroup.children.length) {
+      const m = cityGroup.children.pop();
+      m.geometry?.dispose?.();
+      m.material?.dispose?.();
+    }
+
+    const commits = data.commits;
+    const xSpacing = 36;
+    const zSpacing = 7;
+
+    const totalXRange = (commits.length - 1) * xSpacing;
+    const xOffset = -totalXRange / 2;
+
+    for (let ci = 0; ci < commits.length; ci++) {
+      const c = commits[ci];
+      const baseX = xOffset + ci * xSpacing;
+
+      // Center this commit's files along Z
+      const n = c.files.length;
+      const zStart = -(n - 1) / 2 * zSpacing;
+
+      for (let fi = 0; fi < n; fi++) {
+        const f = c.files[fi];
+        const totalLines = (f.ins || 0) + (f.dels || 0);
+        // Log-scaled height with floor for visibility
+        const h = Math.max(1.5, Math.log(totalLines + 1) * 5.5 + 2);
+
+        const x = baseX + (Math.random() - 0.5) * 6;  // slight jitter
+        const z = zStart + fi * zSpacing + (Math.random() - 0.5) * 2;
+        const y = h / 2;
+
+        const w = 4 + Math.random() * 1.5;
+        const d = 4 + Math.random() * 1.5;
+        const geo = new THREE.BoxGeometry(w, h, d);
+
+        const color = colorFor(f, c, mode);
+        const mat = new THREE.MeshStandardMaterial({
+          color: color,
+          roughness: 0.62,
+          metalness: 0.08,
+          emissive: color,
+          emissiveIntensity: 0.22
+        });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(x, y, z);
+        mesh.rotation.y = (Math.random() - 0.5) * 0.08;
+        cityGroup.add(mesh);
+      }
+    }
+
+    // Add tiny "window light" points scattered on building faces — Points geometry
+    const windowPositions = [];
+    const windowColors = [];
+    const winColor = new THREE.Color(0xffd498);
+    cityGroup.traverse(m => {
+      if (m.isMesh && m.geometry?.parameters?.height > 5) {
+        const { width, height, depth } = m.geometry.parameters;
+        const n = Math.floor(height / 2);  // window count proportional to height
+        for (let i = 0; i < n; i++) {
+          // Pick a face
+          const face = Math.floor(Math.random() * 4);
+          let lx, lz;
+          if (face === 0)      { lx = -width/2 - 0.02; lz = (Math.random() - 0.5) * depth * 0.8; }
+          else if (face === 1) { lx = width/2 + 0.02;  lz = (Math.random() - 0.5) * depth * 0.8; }
+          else if (face === 2) { lz = -depth/2 - 0.02; lx = (Math.random() - 0.5) * width * 0.8; }
+          else                 { lz = depth/2 + 0.02;  lx = (Math.random() - 0.5) * width * 0.8; }
+          const ly = -height/2 + 0.5 + Math.random() * (height - 1);
+          const wp = new THREE.Vector3(lx, ly, lz).applyEuler(m.rotation).add(m.position);
+          windowPositions.push(wp.x, wp.y, wp.z);
+          // Subtle color variation
+          const v = 0.7 + Math.random() * 0.3;
+          windowColors.push(winColor.r * v, winColor.g * v * 0.95, winColor.b * v * 0.85);
+        }
+      }
+    });
+
+    const winGeo = new THREE.BufferGeometry();
+    winGeo.setAttribute('position', new THREE.Float32BufferAttribute(windowPositions, 3));
+    winGeo.setAttribute('color', new THREE.Float32BufferAttribute(windowColors, 3));
+    const winMat = new THREE.PointsMaterial({
+      size: 1.2,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.95,
+      sizeAttenuation: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+    const windows = new THREE.Points(winGeo, winMat);
+    cityGroup.add(windows);
+  }
+
+  let currentMode = 'byExt';
+  buildCity(currentMode);
+
+  // -------- controls --------
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.06;
+  controls.target.set(0, 10, 0);
+  controls.minDistance = 40;
+  controls.maxDistance = 800;
+  controls.maxPolarAngle = Math.PI * 0.49; // can't go below ground
+
+  function resetCamera() {
+    camera.position.set(180, 140, 280);
+    controls.target.set(0, 10, 0);
+  }
+
+  // -------- key handlers --------
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'r' || e.key === 'R') resetCamera();
+    if (e.key === '1') { currentMode = 'byExt';    buildCity(currentMode); }
+    if (e.key === '2') { currentMode = 'byAuthor'; buildCity(currentMode); }
+    if (e.key === '3') { currentMode = 'mono';     buildCity(currentMode); }
+  });
+
+  // -------- resize --------
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  // -------- loop --------
+  function animate() {
+    requestAnimationFrame(animate);
+    controls.update();
+    renderer.render(scene, camera);
+  }
+  animate();
+})();
+</script>
+</body>
+</html>
