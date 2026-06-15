@@ -353,9 +353,9 @@ import { GammaCorrectionShader } from 'three/addons/shaders/GammaCorrectionShade
   composer.addPass(new RenderPass(scene, camera));
   const bloomPass = new UnrealBloomPass(
     new THREE.Vector2(window.innerWidth, window.innerHeight),
-    0.42,  // strength
-    0.34,  // radius
-    0.45   // threshold — only the bright lights bloom, not building bodies
+    0.24,  // strength — subtle glow, not a haze
+    0.3,   // radius
+    0.55   // threshold — only the brightest lights bloom
   );
   composer.addPass(bloomPass);
 
@@ -855,9 +855,9 @@ import { GammaCorrectionShader } from 'three/addons/shaders/GammaCorrectionShade
   function makeFlyer() {
     flyer = new THREE.Mesh(
       new THREE.IcosahedronGeometry(FLY.r, 1),
-      new THREE.MeshStandardMaterial({ color: 0xff9a5a, emissive: 0xff6b35, emissiveIntensity: 1.5, roughness: 0.3, metalness: 0.2 })
+      new THREE.MeshStandardMaterial({ color: 0xff9a5a, emissive: 0xff6b35, emissiveIntensity: 1.0, roughness: 0.3, metalness: 0.2 })
     );
-    flyer.add(new THREE.PointLight(0xff6b35, 1.4, 150, 2));
+    flyer.add(new THREE.PointLight(0xff6b35, 1.0, 150, 2));
     scene.add(flyer);
   }
 
