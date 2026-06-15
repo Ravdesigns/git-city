@@ -8,6 +8,8 @@ runs left → right, oldest commits to newest.
 Built with [Three.js](https://threejs.org) r149. No build step, no framework —
 one HTML file plus two vendored modules served statically.
 
+**Live → [git-city-kappa.vercel.app](https://git-city-kappa.vercel.app)**
+
 ## Controls
 
 | input            | action                                       |
