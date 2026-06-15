@@ -28,6 +28,109 @@
     position: fixed; top: 24px; right: 24px;
     width: 8px; height: 8px; background: #FF6B35;
   }
+
+  /* ---- open-gate button (persistent affordance) ---- */
+  #open-gate {
+    position: fixed; bottom: 20px; left: 24px; z-index: 20;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 3px; padding: 7px 12px;
+    color: #8a929c; font: inherit;
+    font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
+    cursor: pointer; transition: border-color 0.16s, color 0.16s;
+  }
+  #open-gate:hover { border-color: rgba(255,107,53,0.55); color: #d8b078; }
+  #open-gate b { color: #FF6B35; font-weight: 600; margin-right: 3px; }
+
+  /* ---- gate (repo modal) ---- */
+  #gate {
+    position: fixed; inset: 0; z-index: 50;
+    display: flex; align-items: center; justify-content: center;
+    background: radial-gradient(120% 120% at 50% 0%, rgba(10,18,36,0.55), rgba(6,8,18,0.9));
+    backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px);
+    animation: gate-fade 0.4s ease both;
+  }
+  #gate.hidden { display: none; }
+  @keyframes gate-fade { from { opacity: 0; } to { opacity: 1; } }
+
+  .gate-panel {
+    position: relative;
+    width: min(92vw, 458px);
+    padding: 40px 38px 30px;
+    background: linear-gradient(180deg, rgba(16,22,40,0.97), rgba(9,13,26,0.98));
+    border: 1px solid rgba(255,255,255,0.09);
+    border-radius: 7px;
+    box-shadow: 0 32px 90px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.05);
+    animation: panel-rise 0.5s cubic-bezier(0.16,1,0.3,1) both;
+  }
+  @keyframes panel-rise { from { transform: translateY(16px) scale(0.985); opacity: 0; } to { transform: none; opacity: 1; } }
+
+  .gate-kicker {
+    font-size: 10px; letter-spacing: 0.34em; text-transform: uppercase;
+    color: #FF6B35; margin-bottom: 16px;
+  }
+  .gate-title {
+    font-size: 25px; font-weight: 500; line-height: 1.18;
+    letter-spacing: -0.01em; color: #eef1f5; margin: 0 0 12px;
+  }
+  .gate-sub { font-size: 12.5px; line-height: 1.65; color: #868e98; margin: 0 0 24px; }
+
+  #gate-form { display: flex; gap: 8px; }
+  #gate-input {
+    flex: 1; min-width: 0;
+    background: rgba(0,0,0,0.34);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 4px; padding: 11px 13px;
+    color: #e6e9ee; font: inherit; font-size: 13px; letter-spacing: 0.01em;
+    outline: none; transition: border-color 0.18s, box-shadow 0.18s;
+  }
+  #gate-input::placeholder { color: #586271; }
+  #gate-input:focus { border-color: #FF6B35; box-shadow: 0 0 0 3px rgba(255,107,53,0.13); }
+
+  #gate-build {
+    flex: none;
+    background: #FF6B35; color: #0a0c14;
+    border: none; border-radius: 4px; padding: 11px 18px;
+    font: inherit; font-size: 13px; font-weight: 600; letter-spacing: 0.02em;
+    cursor: pointer; transition: filter 0.16s, transform 0.08s, opacity 0.16s;
+  }
+  #gate-build:hover { filter: brightness(1.08); }
+  #gate-build:active { transform: translateY(1px); }
+  #gate-build:disabled { opacity: 0.5; cursor: default; }
+
+  .gate-examples {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 7px;
+    margin-top: 15px;
+    font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: #586271;
+  }
+  .chip {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 3px; padding: 4px 8px;
+    color: #9aa2ac; font: inherit; font-size: 11px; letter-spacing: 0.01em; text-transform: none;
+    cursor: pointer; transition: border-color 0.16s, color 0.16s;
+  }
+  .chip:hover { border-color: rgba(255,107,53,0.5); color: #d8b078; }
+
+  .gate-status { min-height: 17px; margin-top: 18px; font-size: 11.5px; line-height: 1.5; color: #868e98; }
+  .gate-status.busy { color: #d8b078; }
+  .gate-status.ok   { color: #8aa898; }
+  .gate-status.err  { color: #e07a6a; }
+
+  .gate-skip {
+    display: block; margin-top: 18px;
+    background: none; border: none; padding: 0;
+    color: #586271; font: inherit; font-size: 11px; letter-spacing: 0.04em;
+    cursor: pointer; transition: color 0.16s;
+  }
+  .gate-skip:hover { color: #9aa2ac; }
+
+  #gate-close {
+    position: absolute; top: 13px; right: 15px;
+    background: none; border: none; padding: 4px; line-height: 1;
+    color: #586271; font-size: 19px; cursor: pointer; transition: color 0.16s;
+  }
+  #gate-close:hover { color: #c0c5cc; }
 </style>
 </head>
 <body>
@@ -41,7 +144,31 @@
   <kbd>drag</kbd> rotate &nbsp;
   <kbd>scroll</kbd> zoom &nbsp;
   <kbd>R</kbd> reset &nbsp;
-  <kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd> palette
+  <kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd> palette &nbsp;
+  <kbd>G</kbd> new repo
+</div>
+
+<button id="open-gate"><b>+</b> build from a repo</button>
+
+<div id="gate" class="hidden">
+  <div class="gate-panel">
+    <button id="gate-close" type="button" aria-label="close">&times;</button>
+    <div class="gate-kicker">git-city</div>
+    <h1 class="gate-title">turn any repo into a skyline</h1>
+    <p class="gate-sub">paste a github repo and every commit becomes a cluster of buildings — height is lines changed, colour is the file type.</p>
+    <form id="gate-form" autocomplete="off">
+      <input id="gate-input" type="text" placeholder="github.com/owner/repo" spellcheck="false" autocapitalize="off" />
+      <button id="gate-build" type="submit">build &rarr;</button>
+    </form>
+    <div class="gate-examples">
+      <span>try</span>
+      <button class="chip" type="button" data-repo="Ravdesigns/git-city">Ravdesigns/git-city</button>
+      <button class="chip" type="button" data-repo="mrdoob/three.js">mrdoob/three.js</button>
+      <button class="chip" type="button" data-repo="facebook/react">facebook/react</button>
+    </div>
+    <div id="gate-status" class="gate-status"></div>
+    <button id="gate-skip" class="gate-skip" type="button">explore the demo city instead &rarr;</button>
+  </div>
 </div>
 
 <script src="data.js"></script>
@@ -60,16 +187,20 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 (function () {
-  const data = window.COMMIT_DATA;
-  if (!data) {
-    document.getElementById('hud').innerHTML = '<div style="color:#c84a4a">no data.js — run build.sh</div>';
-    return;
-  }
+  let data = window.COMMIT_DATA || { repo: '—', commits: [] };
 
-  const buildingCount = data.commits.reduce((s, c) => s + c.files.length, 0);
-  document.getElementById('repo-label').textContent = data.repo;
-  document.getElementById('commit-count').textContent = data.commits.length + ' commits';
-  document.getElementById('building-count').textContent = buildingCount + ' buildings';
+  const hud = {
+    label: document.getElementById('repo-label'),
+    commits: document.getElementById('commit-count'),
+    buildings: document.getElementById('building-count'),
+  };
+  function updateHud() {
+    const buildingCount = data.commits.reduce((s, c) => s + c.files.length, 0);
+    hud.label.textContent = data.repo || '—';
+    hud.commits.textContent = data.commits.length + ' commits';
+    hud.buildings.textContent = buildingCount + ' buildings';
+  }
+  updateHud();
 
   // -------- scene --------
   const scene = new THREE.Scene();
@@ -133,11 +264,15 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
   // Author palette
   const authorColors = [0xd8b078, 0x8aa898, 0x9e7890, 0x6088c0, 0xc88848, 0x8898c8];
-  const authorIndex = {};
-  let authIdx = 0;
-  for (const c of data.commits) {
-    if (!(c.author in authorIndex)) authorIndex[c.author] = authIdx++ % authorColors.length;
+  let authorIndex = {};
+  function computeAuthorIndex() {
+    authorIndex = {};
+    let i = 0;
+    for (const c of data.commits) {
+      if (!(c.author in authorIndex)) authorIndex[c.author] = i++ % authorColors.length;
+    }
   }
+  computeAuthorIndex();
 
   function colorFor(file, commit, mode) {
     if (mode === 'mono') return 0x8a929c;
@@ -255,21 +390,156 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
   controls.dampingFactor = 0.06;
   controls.target.set(0, 10, 0);
   controls.minDistance = 40;
-  controls.maxDistance = 800;
+  controls.maxDistance = 2200;
   controls.maxPolarAngle = Math.PI * 0.49; // can't go below ground
 
+  // -------- camera framing (fits any city, small or huge) --------
+  const _box = new THREE.Box3();
+  const _size = new THREE.Vector3();
+  const _center = new THREE.Vector3();
   function resetCamera() {
-    camera.position.set(180, 140, 280);
-    controls.target.set(0, 10, 0);
+    _box.setFromObject(cityGroup);
+    if (_box.isEmpty()) {
+      camera.position.set(180, 140, 280);
+      controls.target.set(0, 10, 0);
+      return;
+    }
+    _box.getSize(_size);
+    _box.getCenter(_center);
+    const maxDim = Math.max(_size.x, _size.z);
+    const dist = Math.min(2000, Math.max(160, maxDim * 0.85 + 130));
+    controls.target.set(_center.x, 12, _center.z);
+    camera.position.set(_center.x + dist * 0.5, dist * 0.5 + 70, _center.z + dist * 0.82);
+    // scale fog with viewing distance so big cities don't wash into the haze
+    scene.fog.density = Math.min(0.0028, Math.max(0.00022, 0.42 / dist));
   }
+
+  // -------- swap in a new dataset and rebuild --------
+  function applyData(newData) {
+    data = newData;
+    computeAuthorIndex();
+    updateHud();
+    buildCity(currentMode);
+    resetCamera();
+  }
+
+  // -------- github → city (client-side, anonymous) --------
+  const GH = 'https://api.github.com';
+  const MAX_COMMITS = 40;     // anonymous GitHub allows 60 req/hr per IP
+  const CONCURRENCY = 5;
+
+  function parseRepo(input) {
+    if (!input) return null;
+    let s = input.trim();
+    s = s.replace(/^https?:\/\//i, '').replace(/^git@github\.com:/i, 'github.com/');
+    s = s.replace(/\.git$/i, '').replace(/[?#].*$/, '').replace(/\/+$/, '');
+    s = s.replace(/^(www\.)?github\.com\//i, '');
+    const m = s.match(/^([\w.-]+)\/([\w.-]+)/);
+    return m ? { owner: m[1], repo: m[2] } : null;
+  }
+
+  async function ghJson(url) {
+    const res = await fetch(url, { headers: { Accept: 'application/vnd.github+json' } });
+    if ((res.status === 403 || res.status === 429) && res.headers.get('x-ratelimit-remaining') === '0') {
+      const reset = Number(res.headers.get('x-ratelimit-reset')) * 1000;
+      const err = new Error('rate'); err.rate = true;
+      err.mins = reset ? Math.max(1, Math.ceil((reset - Date.now()) / 60000)) : null;
+      throw err;
+    }
+    if (res.status === 404) { const err = new Error('notfound'); err.notfound = true; throw err; }
+    if (!res.ok) throw new Error('github ' + res.status);
+    return res.json();
+  }
+
+  async function fetchRepoCity(owner, repo, onProgress) {
+    const meta = await ghJson(`${GH}/repos/${owner}/${repo}`);
+    onProgress('reading commit log…');
+    const list = await ghJson(`${GH}/repos/${owner}/${repo}/commits?per_page=${MAX_COMMITS}`);
+    if (!Array.isArray(list) || list.length === 0) { const err = new Error('empty'); err.empty = true; throw err; }
+
+    const commits = new Array(list.length);
+    const queue = list.map((c, i) => ({ c, i }));
+    let done = 0;
+    async function worker() {
+      while (queue.length) {
+        const { c, i } = queue.shift();
+        const detail = await ghJson(c.url);
+        const a = c.commit && c.commit.author;
+        commits[i] = {
+          hash: (c.sha || '').slice(0, 7),
+          author: (a && a.name) || (c.author && c.author.login) || 'unknown',
+          ts: a && a.date ? Math.floor(Date.parse(a.date) / 1000) : 0,
+          subject: ((c.commit && c.commit.message) || '').split('\n')[0],
+          files: (detail.files || []).map(f => ({ path: f.filename, ins: f.additions || 0, dels: f.deletions || 0 })),
+        };
+        onProgress(`mapping commit ${++done}/${list.length}…`);
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, list.length) }, worker));
+    commits.sort((p, q) => p.ts - q.ts); // oldest first → chronological X axis
+    return { repo: meta.full_name || `${owner}/${repo}`, commits, truncated: list.length >= MAX_COMMITS };
+  }
+
+  // -------- gate (first-visit repo modal) --------
+  const gate = document.getElementById('gate');
+  const gateInput = document.getElementById('gate-input');
+  const gateBuild = document.getElementById('gate-build');
+  const gateStatus = document.getElementById('gate-status');
+  let busy = false;
+
+  const markSeen = () => { try { localStorage.setItem('gc_seen', '1'); } catch (e) {} };
+  function openGate() { gate.classList.remove('hidden'); setTimeout(() => gateInput.focus(), 60); }
+  function closeGate() { markSeen(); gate.classList.add('hidden'); }
+  function setStatus(msg, kind) {
+    gateStatus.textContent = msg || '';
+    gateStatus.className = 'gate-status' + (kind ? ' ' + kind : '');
+  }
+
+  async function build(input) {
+    if (busy) return;
+    const parsed = parseRepo(input);
+    if (!parsed) { setStatus('enter a repo like  github.com/owner/repo', 'err'); return; }
+    busy = true; gateBuild.disabled = true;
+    setStatus(`connecting to ${parsed.owner}/${parsed.repo}…`, 'busy');
+    try {
+      const city = await fetchRepoCity(parsed.owner, parsed.repo, (m) => setStatus(m, 'busy'));
+      applyData(city);
+      setStatus(`built ${city.repo}${city.truncated ? ` · latest ${city.commits.length} commits` : ''} ✓`, 'ok');
+      setTimeout(closeGate, 750);
+    } catch (e) {
+      if (e.rate) setStatus(`github rate limit reached (60/hr for anonymous)${e.mins ? ` — try again in ~${e.mins} min` : ' — try later'}`, 'err');
+      else if (e.notfound) setStatus('repo not found, or it’s private', 'err');
+      else if (e.empty) setStatus('that repo has no commits', 'err');
+      else setStatus('couldn’t reach github — check the url and your connection', 'err');
+    } finally {
+      busy = false; gateBuild.disabled = false;
+    }
+  }
+
+  document.getElementById('gate-form').addEventListener('submit', (e) => { e.preventDefault(); build(gateInput.value); });
+  document.getElementById('gate-skip').addEventListener('click', closeGate);
+  document.getElementById('gate-close').addEventListener('click', closeGate);
+  document.getElementById('open-gate').addEventListener('click', openGate);
+  gate.addEventListener('mousedown', (e) => { if (e.target === gate) closeGate(); });
+  document.querySelectorAll('.chip').forEach(ch =>
+    ch.addEventListener('click', () => { gateInput.value = ch.dataset.repo; build(ch.dataset.repo); }));
 
   // -------- key handlers --------
   window.addEventListener('keydown', (e) => {
+    if (!gate.classList.contains('hidden')) { if (e.key === 'Escape') closeGate(); return; }
+    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
     if (e.key === 'r' || e.key === 'R') resetCamera();
-    if (e.key === '1') { currentMode = 'byExt';    buildCity(currentMode); }
-    if (e.key === '2') { currentMode = 'byAuthor'; buildCity(currentMode); }
-    if (e.key === '3') { currentMode = 'mono';     buildCity(currentMode); }
+    else if (e.key === '1') { currentMode = 'byExt';    buildCity(currentMode); }
+    else if (e.key === '2') { currentMode = 'byAuthor'; buildCity(currentMode); }
+    else if (e.key === '3') { currentMode = 'mono';     buildCity(currentMode); }
+    else if (e.key === 'g' || e.key === 'G') openGate();
   });
+
+  // frame the demo city on load, then show the gate to first-time visitors
+  resetCamera();
+  let seen = false;
+  try { seen = !!localStorage.getItem('gc_seen'); } catch (e) {}
+  if (!seen) openGate();
 
   // -------- resize --------
   window.addEventListener('resize', () => {

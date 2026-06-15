@@ -10,6 +10,14 @@ one HTML file plus two vendored modules served statically.
 
 **Live → [git-city-kappa.vercel.app](https://git-city-kappa.vercel.app)**
 
+## Build from any repo
+
+Open the site and paste a GitHub repo (e.g. `mrdoob/three.js`) into the first-visit
+prompt — git-city pulls its recent history straight from the GitHub API **in your
+browser** and raises a fresh skyline. No tokens, no backend. Press `G` any time to
+build another. Anonymous GitHub allows 60 requests/hour per IP, so each build is
+capped at the latest 40 commits.
+
 ## Controls
 
 | input            | action                                       |
