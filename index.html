@@ -204,10 +204,24 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
   // -------- scene --------
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x0a1224);
-  scene.fog = new THREE.FogExp2(0x0a1224, 0.0022);
+  scene.background = (() => {
+    // vertical night-sky gradient (dark zenith → faint glow at the horizon)
+    const cv = document.createElement('canvas');
+    cv.width = 4; cv.height = 512;
+    const cx = cv.getContext('2d');
+    const grad = cx.createLinearGradient(0, 0, 0, 512);
+    grad.addColorStop(0.00, '#020308');
+    grad.addColorStop(0.45, '#05091a');
+    grad.addColorStop(0.80, '#081123');
+    grad.addColorStop(1.00, '#0a1530');
+    cx.fillStyle = grad; cx.fillRect(0, 0, 4, 512);
+    const tex = new THREE.CanvasTexture(cv);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  })();
+  scene.fog = new THREE.FogExp2(0x0a1326, 0.0022);
 
-  const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 4000);
+  const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 14000);
   camera.position.set(200, 160, 300);
 
   const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -233,9 +247,9 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
   scene.add(fill);
 
   // -------- ground --------
-  const groundGeo = new THREE.PlaneGeometry(3000, 3000, 60, 60);
+  const groundGeo = new THREE.PlaneGeometry(16000, 16000, 1, 1);
   const groundMat = new THREE.MeshStandardMaterial({
-    color: 0x182838, roughness: 0.9, metalness: 0.0
+    color: 0x121d2e, roughness: 0.95, metalness: 0.0
   });
   const ground = new THREE.Mesh(groundGeo, groundMat);
   ground.rotation.x = -Math.PI / 2;
@@ -393,26 +407,125 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
   controls.maxDistance = 2200;
   controls.maxPolarAngle = Math.PI * 0.49; // can't go below ground
 
-  // -------- camera framing (fits any city, small or huge) --------
-  const _box = new THREE.Box3();
-  const _size = new THREE.Vector3();
-  const _center = new THREE.Vector3();
-  function resetCamera() {
-    _box.setFromObject(cityGroup);
-    if (_box.isEmpty()) {
-      camera.position.set(180, 140, 280);
-      controls.target.set(0, 10, 0);
-      return;
-    }
-    _box.getSize(_size);
-    _box.getCenter(_center);
-    const maxDim = Math.max(_size.x, _size.z);
-    const dist = Math.min(2000, Math.max(160, maxDim * 0.85 + 130));
-    controls.target.set(_center.x, 12, _center.z);
-    camera.position.set(_center.x + dist * 0.5, dist * 0.5 + 70, _center.z + dist * 0.82);
-    // scale fog with viewing distance so big cities don't wash into the haze
-    scene.fog.density = Math.min(0.0028, Math.max(0.00022, 0.42 / dist));
+  // -------- city bounds + camera framing (fits any city, small or huge) --------
+  const _bbox = new THREE.Box3();
+  const _bsize = new THREE.Vector3();
+  function cityBounds() {
+    _bbox.setFromObject(cityGroup);
+    const center = new THREE.Vector3();
+    if (_bbox.isEmpty()) return { center, span: 240 };
+    _bbox.getSize(_bsize);
+    _bbox.getCenter(center);
+    return { center, span: Math.max(_bsize.x, _bsize.z) };
   }
+  const framingDistance = (span) => Math.min(2000, Math.max(160, span * 0.85 + 130));
+
+  function resetCamera() {
+    const b = cityBounds();
+    const dist = framingDistance(b.span);
+    controls.target.set(b.center.x, 12, b.center.z);
+    camera.position.set(b.center.x + dist * 0.5, dist * 0.5 + 70, b.center.z + dist * 0.82);
+    // fog scales with distance so big cities don't wash into the haze
+    scene.fog.density = Math.min(0.0028, Math.max(0.00022, 0.42 / dist));
+    // ground grid follows + scales with the city footprint
+    grid.position.set(b.center.x, 0.05, b.center.z);
+    grid.scale.setScalar(Math.max(0.3, (2.6 * dist) / 2000));
+  }
+
+  // -------- distant skyline (ambient backdrop — makes the data-city feel "almost there") --------
+  const backdropGroup = new THREE.Group();
+  scene.add(backdropGroup);
+  const backdropTowerMat = new THREE.MeshStandardMaterial({
+    color: 0x070b15, roughness: 0.93, metalness: 0.0, emissive: 0x0c1426, emissiveIntensity: 0.35
+  });
+  const twinkleLayers = [];   // window-light point clouds, animated out of phase
+  let beaconLayer = null;     // blinking red aircraft-warning lights
+  const UP = new THREE.Vector3(0, 1, 0);
+  const _wp = new THREE.Vector3();
+  const _warm = new THREE.Color(0xffce8a);
+  const _cool = new THREE.Color(0xaccaff);
+
+  function rebuildBackdrop() {
+    while (backdropGroup.children.length) {
+      const m = backdropGroup.children.pop();
+      if (m.geometry) m.geometry.dispose();
+      if (m.material && m.material !== backdropTowerMat) m.material.dispose();
+    }
+    twinkleLayers.length = 0;
+    beaconLayer = null;
+
+    const b = cityBounds();
+    const dist = framingDistance(b.span);
+    const inner = dist * 1.08, outer = dist * 2.1;
+    const unit = dist * 0.045;
+    const COUNT = 280;
+
+    const lp = [[], [], []], lc = [[], [], []];  // positions/colours per twinkle layer
+    const beaconPos = [];
+
+    for (let i = 0; i < COUNT; i++) {
+      const ang = (i / COUNT) * Math.PI * 2 + (Math.random() - 0.5) * 0.4;
+      const r = inner + Math.random() * (outer - inner);
+      const depthF = (r - inner) / (outer - inner);     // 0 near .. 1 far
+      const tw = dist * (0.022 + Math.random() * 0.03);
+      const td = dist * (0.022 + Math.random() * 0.03);
+      const th = dist * (0.1 + Math.pow(Math.random(), 1.8) * 0.42) * (0.85 + depthF * 0.5);  // mostly low, a few tall; rising toward the back
+      const tx = b.center.x + Math.cos(ang) * r;
+      const tz = b.center.z + Math.sin(ang) * r;
+      const ry = Math.random() * Math.PI;
+
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(tw, th, td), backdropTowerMat);
+      mesh.position.set(tx, th / 2, tz);
+      mesh.rotation.y = ry;
+      backdropGroup.add(mesh);
+
+      const rows = Math.max(2, Math.floor(th / (unit * 0.9)));
+      for (let w = 0; w < rows; w++) {
+        if (Math.random() < 0.3) continue;             // some windows dark
+        const face = (Math.random() * 4) | 0;
+        let lx, lz;
+        if (face === 0)      { lx = -tw / 2 - 0.1; lz = (Math.random() - 0.5) * td * 0.8; }
+        else if (face === 1) { lx =  tw / 2 + 0.1; lz = (Math.random() - 0.5) * td * 0.8; }
+        else if (face === 2) { lz = -td / 2 - 0.1; lx = (Math.random() - 0.5) * tw * 0.8; }
+        else                 { lz =  td / 2 + 0.1; lx = (Math.random() - 0.5) * tw * 0.8; }
+        const ly = -th / 2 + unit * 0.6 + Math.random() * (th - unit);
+        _wp.set(lx, ly, lz).applyAxisAngle(UP, ry).add(mesh.position);
+        const L = (Math.random() * 3) | 0;
+        lp[L].push(_wp.x, _wp.y, _wp.z);
+        const col = Math.random() < 0.72 ? _warm : _cool;
+        const v = 0.6 + Math.random() * 0.4;
+        lc[L].push(col.r * v, col.g * v, col.b * v);
+      }
+      if (th > dist * 0.42 && Math.random() < 0.5) beaconPos.push(tx, th + unit * 0.4, tz);
+    }
+
+    const sizes = [unit * 1.0, unit * 1.2, unit * 1.45];
+    const speeds = [1.3, 2.0, 0.8], phases = [0, 2.1, 4.2];
+    for (let L = 0; L < 3; L++) {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(lp[L], 3));
+      g.setAttribute('color', new THREE.Float32BufferAttribute(lc[L], 3));
+      const mat = new THREE.PointsMaterial({
+        size: sizes[L], vertexColors: true, transparent: true, opacity: 0.85,
+        sizeAttenuation: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false
+      });
+      backdropGroup.add(new THREE.Points(g, mat));
+      twinkleLayers.push({ mat, speed: speeds[L], phase: phases[L] });
+    }
+
+    if (beaconPos.length) {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(beaconPos, 3));
+      const mat = new THREE.PointsMaterial({
+        size: unit * 1.9, color: 0xff3b30, transparent: true, opacity: 1,
+        sizeAttenuation: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false
+      });
+      backdropGroup.add(new THREE.Points(g, mat));
+      beaconLayer = { mat };
+    }
+  }
+
+  const clock = new THREE.Clock();
 
   // -------- swap in a new dataset and rebuild --------
   function applyData(newData) {
@@ -420,6 +533,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
     computeAuthorIndex();
     updateHud();
     buildCity(currentMode);
+    rebuildBackdrop();
     resetCamera();
   }
 
@@ -535,7 +649,8 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
     else if (e.key === 'g' || e.key === 'G') openGate();
   });
 
-  // frame the demo city on load, then show the gate to first-time visitors
+  // dress the world + frame the demo city on load, then greet first-time visitors
+  rebuildBackdrop();
   resetCamera();
   let seen = false;
   try { seen = !!localStorage.getItem('gc_seen'); } catch (e) {}
@@ -551,6 +666,13 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
   // -------- loop --------
   function animate() {
     requestAnimationFrame(animate);
+    const t = clock.getElapsedTime();
+    // twinkle the distant windows (layers pulse out of phase) + blink the beacons
+    for (let i = 0; i < twinkleLayers.length; i++) {
+      const L = twinkleLayers[i];
+      L.mat.opacity = 0.62 + 0.34 * Math.sin(t * L.speed + L.phase);
+    }
+    if (beaconLayer) beaconLayer.mat.opacity = Math.sin(t * 2.2) > 0.55 ? 1.0 : 0.07;
     controls.update();
     renderer.render(scene, camera);
   }
