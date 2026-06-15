@@ -242,7 +242,7 @@
 <button id="play-btn">&#9654; fly through it</button>
 
 <div id="game-hud" class="hidden">
-  <div class="gh-score"><b id="game-score">0</b> commits cleared</div>
+  <div class="gh-score"><b id="game-score">0</b> <span id="game-unit">commits</span> cleared</div>
   <div class="gh-hint" id="game-hint">tap / space to fly &nbsp;·&nbsp; esc to exit</div>
 </div>
 
@@ -840,7 +840,7 @@ import { GammaCorrectionShader } from 'three/addons/shaders/GammaCorrectionShade
   legendBtn.addEventListener('click', toggleLegend);
 
   // ============ fly-through game: pilot a commit-orb through the city's history ============
-  const game = { state: 'idle', x: 0, y: 0, vy: 0, score: 0, best: 0, ceiling: 100, startX: 0, endX: 0, obstacles: [], commitXs: [] };
+  const game = { state: 'idle', axis: 'x', lane: 0, x: 0, y: 0, vy: 0, score: 0, best: 0, ceiling: 100, startX: 0, endX: 0, obstacles: [], gates: [], unit: 'commits', total: 0 };
   const FLY = { speed: 42, gravity: 80, flap: 31, r: 2.0, gap: 16 };
   let flyer = null, lastFrameT = 0;
 
@@ -861,9 +861,20 @@ import { GammaCorrectionShader } from 'three/addons/shaders/GammaCorrectionShade
     scene.add(flyer);
   }
 
+  function setFlyerPos(y) {
+    const yy = y == null ? game.y : y;
+    if (game.axis === 'z') flyer.position.set(game.lane, yy, game.x);
+    else flyer.position.set(game.x, yy, game.lane);
+  }
+
   function aimChaseCam(snap) {
-    _camP.set(game.x - 50, game.y + 19, 48);
-    _camA.set(game.x + 28, game.y + 2, 0);
+    if (game.axis === 'z') {
+      _camP.set(game.lane + 11, game.y + 17, game.x - 52);
+      _camA.set(game.lane, game.y + 3, game.x + 30);
+    } else {
+      _camP.set(game.x - 52, game.y + 17, game.lane + 11);
+      _camA.set(game.x + 30, game.y + 3, game.lane);
+    }
     camera.position.lerp(_camP, snap ? 1 : 0.12);
     camera.lookAt(_camA);
   }
@@ -871,30 +882,69 @@ import { GammaCorrectionShader } from 'three/addons/shaders/GammaCorrectionShade
   function startGame() {
     if (!data.commits.length) return;
     if (!flyer) makeFlyer();
-    game.obstacles = [];
-    let maxH = 8, minX = Infinity, maxX = -Infinity;
-    for (const m of cityGroup.children) {
-      if (!(m.userData && m.userData.f)) continue;
+    const builds = cityGroup.children.filter(m => m.userData && m.userData.f);
+    if (!builds.length) return;
+
+    // measure the city; fly down whichever horizontal axis runs longer
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity, maxH = 8;
+    for (const m of builds) {
       const p = m.geometry.parameters;
-      if (m.position.x < minX) minX = m.position.x;
-      if (m.position.x > maxX) maxX = m.position.x;
+      minX = Math.min(minX, m.position.x); maxX = Math.max(maxX, m.position.x);
+      minZ = Math.min(minZ, m.position.z); maxZ = Math.max(maxZ, m.position.z);
       if (p.height > maxH) maxH = p.height;
-      if (Math.abs(m.position.z) <= 8) {
-        game.obstacles.push({ x: m.position.x, z: m.position.z, hw: p.width / 2 + 0.4, hd: p.depth / 2 + 0.4, h: p.height, c: m.userData.c });
-      }
     }
-    // true per-commit X positions (matches buildCity's spacing) — score = commits passed
-    const XSPACING = 36;
-    const xOff = -((data.commits.length - 1) * XSPACING) / 2;
-    game.commitXs = data.commits.map((_, i) => xOff + i * XSPACING);
+    const flyZ = (maxZ - minZ) > (maxX - minX);
+    game.axis = flyZ ? 'z' : 'x';
+
+    // lane = the cross-axis row that runs longest along the flight axis
+    const groups = {};
+    for (const m of builds) {
+      const k = Math.round(flyZ ? m.position.x : m.position.z);
+      (groups[k] = groups[k] || []).push(m);
+    }
+    let lane = 0, bestSpan = -1;
+    for (const k in groups) {
+      const coords = groups[k].map(m => flyZ ? m.position.z : m.position.x);
+      const span = Math.max(...coords) - Math.min(...coords);
+      if (span > bestSpan) { bestSpan = span; lane = Number(k); }
+    }
+    game.lane = lane;
+
+    // obstacles = the buildings in that lane
+    game.obstacles = [];
+    for (const m of builds) {
+      const cross = flyZ ? m.position.x : m.position.z;
+      if (Math.abs(cross - lane) > 8) continue;
+      const p = m.geometry.parameters;
+      game.obstacles.push({
+        pos: flyZ ? m.position.z : m.position.x, cross,
+        hw: (flyZ ? p.depth : p.width) / 2 + 0.4,
+        hd: (flyZ ? p.width : p.depth) / 2 + 0.4,
+        h: p.height, c: m.userData.c, f: m.userData.f
+      });
+    }
+
+    // scoring gates + label
+    if (flyZ) {
+      game.gates = game.obstacles.map(o => o.pos).sort((a, b) => a - b);
+      game.unit = 'files';
+    } else {
+      const XS = 36, off = -((data.commits.length - 1) * XS) / 2;
+      game.gates = data.commits.map((_, i) => off + i * XS);
+      game.unit = 'commits';
+    }
+    game.total = game.gates.length;
+    document.getElementById('game-unit').textContent = game.unit;
+
+    const lo = flyZ ? minZ : minX, hi = flyZ ? maxZ : maxX;
     game.ceiling = maxH + FLY.gap;
-    game.startX = minX - 70;
-    game.endX = maxX + 45;
+    game.startX = lo - 45;
+    game.endX = hi + 45;
     game.x = game.startX;
     game.y = Math.min(game.ceiling - FLY.r - 3, game.ceiling * 0.5);
     game.vy = 0; game.score = 0;
     gameScoreEl.textContent = '0';
-    flyer.position.set(game.x, game.y, 0); flyer.visible = true;
+    setFlyerPos(); flyer.visible = true;
     game.state = 'ready';
     controls.enabled = false;
     document.body.classList.add('playing');
@@ -911,7 +961,7 @@ import { GammaCorrectionShader } from 'three/addons/shaders/GammaCorrectionShade
 
   function updateGame(dt) {
     if (game.state === 'ready') {
-      flyer.position.y = game.y + Math.sin(clock.getElapsedTime() * 3) * 0.7;
+      setFlyerPos(game.y + Math.sin(clock.getElapsedTime() * 3) * 0.7);
       flyer.rotation.y += dt * 1.2; flyer.rotation.x += dt * 1.4;
       aimChaseCam(0);
       return;
@@ -920,12 +970,12 @@ import { GammaCorrectionShader } from 'three/addons/shaders/GammaCorrectionShade
     game.vy -= FLY.gravity * dt;
     game.y += game.vy * dt;
     game.x += FLY.speed * dt;
-    flyer.position.set(game.x, game.y, 0);
+    setFlyerPos();
     flyer.rotation.z = Math.max(-0.7, Math.min(0.7, game.vy * 0.02));
     flyer.rotation.x += dt * 5;
 
     let s = 0;
-    for (let i = 0; i < game.commitXs.length; i++) if (game.commitXs[i] <= game.x) s++;
+    for (let i = 0; i < game.gates.length; i++) if (game.gates[i] <= game.x) s++;
     if (s !== game.score) { game.score = s; gameScoreEl.textContent = s; }
 
     if (game.x >= game.endX) return endGame(true, null);
@@ -933,27 +983,32 @@ import { GammaCorrectionShader } from 'three/addons/shaders/GammaCorrectionShade
     if (game.y - FLY.r <= 0) return endGame(false, null, 'ground');
     for (let i = 0; i < game.obstacles.length; i++) {
       const o = game.obstacles[i];
-      if (Math.abs(o.x - game.x) > o.hw + FLY.r) continue;
-      if (Math.abs(o.z) > o.hd + FLY.r) continue;
-      if (game.y - FLY.r < o.h) return endGame(false, o.c);
+      if (Math.abs(o.pos - game.x) > o.hw + FLY.r) continue;
+      if (Math.abs(o.cross - game.lane) > o.hd + FLY.r) continue;
+      if (game.y - FLY.r < o.h) return endGame(false, o.c, null, o.f);
     }
     aimChaseCam(0);
   }
 
-  function endGame(win, c, reason) {
+  function endGame(win, c, reason, f) {
     if (game.state === 'dead') return;
     game.state = 'dead';
     if (game.score > game.best) game.best = game.score;
-    const total = game.commitXs.length;
+    const total = game.total;
     if (win) {
       overBody.innerHTML = `<div class="over-title">you reached <b>HEAD</b> &#10022;</div>` +
-        `<div class="over-sub">flew clean through all ${total} commits of ${esc(data.repo)}</div>`;
+        `<div class="over-sub">flew clean through all ${total} ${game.unit} of ${esc(data.repo)}</div>`;
     } else {
-      const hit = c
-        ? `crashed into <b>${esc((c.subject || 'a commit').slice(0, 46))}</b><br><span class="mono">${esc(c.hash)} &middot; ${esc(c.author)}</span>`
-        : (reason === 'sky' ? 'flew off into the night' : 'down you went');
+      let hit;
+      if (c) {
+        const headline = (game.axis === 'z' && f) ? esc(f.path) : esc((c.subject || 'a commit').slice(0, 46));
+        const sub = (game.axis === 'z' && f) ? `${esc(c.hash)} &middot; ${esc((c.subject || '').slice(0, 36))}` : `${esc(c.hash)} &middot; ${esc(c.author)}`;
+        hit = `crashed into <b>${headline}</b><br><span class="mono">${sub}</span>`;
+      } else {
+        hit = reason === 'sky' ? 'flew off into the night' : 'down you went';
+      }
       overBody.innerHTML = `<div class="over-title">${hit}</div>` +
-        `<div class="over-sub">cleared ${game.score} of ${total} commits${game.score >= game.best && game.score > 0 ? ' &middot; best yet' : ''}</div>`;
+        `<div class="over-sub">cleared ${game.score} of ${total} ${game.unit}${game.score >= game.best && game.score > 0 ? ' &middot; best yet' : ''}</div>`;
     }
     gameHud.classList.add('hidden');
     overEl.classList.remove('hidden');
