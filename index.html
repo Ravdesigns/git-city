@@ -205,6 +205,9 @@
   body.playing #hud, body.playing #legend, body.playing #help,
   body.playing #open-gate, body.playing #play-btn, body.playing #sig { display: none; }
 </style>
+<!-- Vercel Web Analytics: page views + a custom 'build' event per repo attempt -->
+<script>window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };</script>
+<script defer src="/_vercel/insights/script.js"></script>
 </head>
 <body>
 <div id="hud">
@@ -781,19 +784,24 @@ import { GammaCorrectionShader } from 'three/addons/shaders/GammaCorrectionShade
     const parsed = parseRepo(input);
     if (!parsed) { setStatus('enter a repo like  github.com/owner/repo', 'err'); return; }
     busy = true; gateBuild.disabled = true;
-    setStatus(`connecting to ${parsed.owner}/${parsed.repo}…`, 'busy');
+    const slug = `${parsed.owner}/${parsed.repo}`;
+    let status = 'error';
+    setStatus(`connecting to ${slug}…`, 'busy');
     try {
       const city = await fetchRepoCity(parsed.owner, parsed.repo, (m) => setStatus(m, 'busy'));
       applyData(city);
+      status = 'built';
       setStatus(`built ${city.repo}${city.truncated ? ` · latest ${city.commits.length} commits` : ''} ✓`, 'ok');
       setTimeout(closeGate, 750);
     } catch (e) {
-      if (e.rate) setStatus(`github rate limit reached (60/hr for anonymous)${e.mins ? ` — try again in ~${e.mins} min` : ' — try later'}`, 'err');
-      else if (e.notfound) setStatus('repo not found, or it’s private', 'err');
-      else if (e.empty) setStatus('that repo has no commits', 'err');
-      else setStatus('couldn’t reach github — check the url and your connection', 'err');
+      if (e.rate) { status = 'rate_limited'; setStatus(`github rate limit reached (60/hr for anonymous)${e.mins ? ` — try again in ~${e.mins} min` : ' — try later'}`, 'err'); }
+      else if (e.notfound) { status = 'not_found'; setStatus('repo not found, or it’s private', 'err'); }
+      else if (e.empty) { status = 'empty'; setStatus('that repo has no commits', 'err'); }
+      else { status = 'error'; setStatus('couldn’t reach github — check the url and your connection', 'err'); }
     } finally {
       busy = false; gateBuild.disabled = false;
+      // tell Vercel Analytics someone tried a repo (no-op if analytics isn't enabled)
+      try { window.va && window.va('event', { name: 'build', data: { repo: slug, status } }); } catch (_) {}
     }
   }
 
