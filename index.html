@@ -162,6 +162,48 @@
   .tip-lines .del { color: #e07a6a; }
   .tip-meta { color: #767e8a; font-size: 10px; letter-spacing: 0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .tip-author { color: #97a0ac; margin-top: 2px; }
+
+  /* ---- play button ---- */
+  #play-btn {
+    position: fixed; bottom: 56px; left: 50%; transform: translateX(-50%); z-index: 22;
+    background: rgba(255,107,53,0.12); border: 1px solid rgba(255,107,53,0.55);
+    color: #ff8a4a; font: inherit; font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase;
+    padding: 11px 22px; border-radius: 4px; cursor: pointer;
+    transition: background 0.18s, color 0.18s, box-shadow 0.18s;
+  }
+  #play-btn:hover { background: rgba(255,107,53,0.22); color: #ffae84; box-shadow: 0 0 26px rgba(255,107,53,0.28); }
+
+  /* ---- in-game hud ---- */
+  #game-hud { position: fixed; top: 26px; left: 50%; transform: translateX(-50%); z-index: 30; text-align: center; }
+  #game-hud.hidden { display: none; }
+  .gh-score { font-size: 14px; letter-spacing: 0.16em; text-transform: uppercase; color: #8a929c; }
+  .gh-score b { color: #ff8a4a; font-size: 23px; font-weight: 600; margin-right: 5px; }
+  .gh-hint { margin-top: 9px; font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: #5a626e; animation: hintpulse 1.4s ease-in-out infinite; }
+  .gh-hint.hidden { display: none; }
+  @keyframes hintpulse { 0%,100% { opacity: 0.35; } 50% { opacity: 0.95; } }
+
+  /* ---- game over / win ---- */
+  #over { position: fixed; inset: 0; z-index: 55; display: flex; align-items: center; justify-content: center;
+    background: radial-gradient(120% 120% at 50% 40%, rgba(10,18,36,0.42), rgba(6,8,18,0.84)); animation: gate-fade 0.35s ease both; }
+  #over.hidden { display: none; }
+  .over-panel { width: min(92vw, 430px); padding: 34px 34px 26px; text-align: center;
+    background: linear-gradient(180deg, rgba(16,22,40,0.97), rgba(9,13,26,0.98));
+    border: 1px solid rgba(255,255,255,0.09); border-radius: 7px; box-shadow: 0 30px 90px rgba(0,0,0,0.6);
+    animation: panel-rise 0.45s cubic-bezier(0.16,1,0.3,1) both; }
+  .over-title { font-size: 19px; color: #eef1f5; line-height: 1.35; margin-bottom: 10px; }
+  .over-title b { color: #ff8a4a; font-weight: 600; }
+  .over-title .mono { color: #767e8a; font-size: 12px; letter-spacing: 0.02em; }
+  .over-sub { font-size: 12px; color: #868e98; letter-spacing: 0.02em; margin-bottom: 22px; }
+  .over-actions { display: flex; gap: 10px; justify-content: center; }
+  .over-actions button { font: inherit; font-size: 12px; letter-spacing: 0.04em; padding: 10px 18px; border-radius: 4px; cursor: pointer; transition: filter 0.16s, color 0.16s, border-color 0.16s; }
+  #over-again { background: #ff6b35; color: #0a0c14; border: none; font-weight: 600; }
+  #over-again:hover { filter: brightness(1.1); }
+  #over-exit { background: none; color: #868e98; border: 1px solid rgba(255,255,255,0.12); }
+  #over-exit:hover { color: #c0c5cc; border-color: rgba(255,255,255,0.25); }
+
+  /* hide normal chrome while flying */
+  body.playing #hud, body.playing #legend, body.playing #help,
+  body.playing #open-gate, body.playing #play-btn, body.playing #sig { display: none; }
 </style>
 </head>
 <body>
@@ -196,6 +238,23 @@
 </div>
 
 <button id="open-gate"><b>+</b> build from a repo</button>
+
+<button id="play-btn">&#9654; fly through it</button>
+
+<div id="game-hud" class="hidden">
+  <div class="gh-score"><b id="game-score">0</b> commits cleared</div>
+  <div class="gh-hint" id="game-hint">tap / space to fly &nbsp;·&nbsp; esc to exit</div>
+</div>
+
+<div id="over" class="hidden">
+  <div class="over-panel">
+    <div id="over-body"></div>
+    <div class="over-actions">
+      <button id="over-again" type="button">fly again</button>
+      <button id="over-exit" type="button">exit to city</button>
+    </div>
+  </div>
+</div>
 
 <div id="gate" class="hidden">
   <div class="gate-panel">
@@ -751,7 +810,7 @@ import { GammaCorrectionShader } from 'three/addons/shaders/GammaCorrectionShade
   const ndc = new THREE.Vector2();
   const tip = document.getElementById('tip');
   renderer.domElement.addEventListener('pointermove', (e) => {
-    if (!gate.classList.contains('hidden')) { tip.classList.add('hidden'); return; }
+    if (!gate.classList.contains('hidden') || game.state !== 'idle') { tip.classList.add('hidden'); return; }
     ndc.x = (e.clientX / window.innerWidth) * 2 - 1;
     ndc.y = -(e.clientY / window.innerHeight) * 2 + 1;
     raycaster.setFromCamera(ndc, camera);
@@ -780,8 +839,153 @@ import { GammaCorrectionShader } from 'three/addons/shaders/GammaCorrectionShade
   }
   legendBtn.addEventListener('click', toggleLegend);
 
+  // ============ fly-through game: pilot a commit-orb through the city's history ============
+  const game = { state: 'idle', x: 0, y: 0, vy: 0, score: 0, best: 0, ceiling: 100, startX: 0, endX: 0, obstacles: [], commitXs: [] };
+  const FLY = { speed: 42, gravity: 80, flap: 31, r: 2.0, gap: 16 };
+  let flyer = null, lastFrameT = 0;
+
+  const playBtn = document.getElementById('play-btn');
+  const gameHud = document.getElementById('game-hud');
+  const gameScoreEl = document.getElementById('game-score');
+  const gameHint = document.getElementById('game-hint');
+  const overEl = document.getElementById('over');
+  const overBody = document.getElementById('over-body');
+  const _camP = new THREE.Vector3(), _camA = new THREE.Vector3();
+
+  function makeFlyer() {
+    flyer = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(FLY.r, 1),
+      new THREE.MeshStandardMaterial({ color: 0xff9a5a, emissive: 0xff6b35, emissiveIntensity: 1.5, roughness: 0.3, metalness: 0.2 })
+    );
+    flyer.add(new THREE.PointLight(0xff6b35, 1.4, 150, 2));
+    scene.add(flyer);
+  }
+
+  function aimChaseCam(snap) {
+    _camP.set(game.x - 50, game.y + 19, 48);
+    _camA.set(game.x + 28, game.y + 2, 0);
+    camera.position.lerp(_camP, snap ? 1 : 0.12);
+    camera.lookAt(_camA);
+  }
+
+  function startGame() {
+    if (!data.commits.length) return;
+    if (!flyer) makeFlyer();
+    game.obstacles = [];
+    let maxH = 8, minX = Infinity, maxX = -Infinity;
+    for (const m of cityGroup.children) {
+      if (!(m.userData && m.userData.f)) continue;
+      const p = m.geometry.parameters;
+      if (m.position.x < minX) minX = m.position.x;
+      if (m.position.x > maxX) maxX = m.position.x;
+      if (p.height > maxH) maxH = p.height;
+      if (Math.abs(m.position.z) <= 8) {
+        game.obstacles.push({ x: m.position.x, z: m.position.z, hw: p.width / 2 + 0.4, hd: p.depth / 2 + 0.4, h: p.height, c: m.userData.c });
+      }
+    }
+    // true per-commit X positions (matches buildCity's spacing) — score = commits passed
+    const XSPACING = 36;
+    const xOff = -((data.commits.length - 1) * XSPACING) / 2;
+    game.commitXs = data.commits.map((_, i) => xOff + i * XSPACING);
+    game.ceiling = maxH + FLY.gap;
+    game.startX = minX - 70;
+    game.endX = maxX + 45;
+    game.x = game.startX;
+    game.y = Math.min(game.ceiling - FLY.r - 3, game.ceiling * 0.5);
+    game.vy = 0; game.score = 0;
+    gameScoreEl.textContent = '0';
+    flyer.position.set(game.x, game.y, 0); flyer.visible = true;
+    game.state = 'ready';
+    controls.enabled = false;
+    document.body.classList.add('playing');
+    gameHud.classList.remove('hidden');
+    gameHint.classList.remove('hidden');
+    overEl.classList.add('hidden');
+    aimChaseCam(1);
+  }
+
+  function flap() {
+    if (game.state === 'ready') { game.state = 'playing'; gameHint.classList.add('hidden'); }
+    if (game.state === 'playing') game.vy = FLY.flap;
+  }
+
+  function updateGame(dt) {
+    if (game.state === 'ready') {
+      flyer.position.y = game.y + Math.sin(clock.getElapsedTime() * 3) * 0.7;
+      flyer.rotation.y += dt * 1.2; flyer.rotation.x += dt * 1.4;
+      aimChaseCam(0);
+      return;
+    }
+    if (game.state !== 'playing') return;
+    game.vy -= FLY.gravity * dt;
+    game.y += game.vy * dt;
+    game.x += FLY.speed * dt;
+    flyer.position.set(game.x, game.y, 0);
+    flyer.rotation.z = Math.max(-0.7, Math.min(0.7, game.vy * 0.02));
+    flyer.rotation.x += dt * 5;
+
+    let s = 0;
+    for (let i = 0; i < game.commitXs.length; i++) if (game.commitXs[i] <= game.x) s++;
+    if (s !== game.score) { game.score = s; gameScoreEl.textContent = s; }
+
+    if (game.x >= game.endX) return endGame(true, null);
+    if (game.y + FLY.r >= game.ceiling) return endGame(false, null, 'sky');
+    if (game.y - FLY.r <= 0) return endGame(false, null, 'ground');
+    for (let i = 0; i < game.obstacles.length; i++) {
+      const o = game.obstacles[i];
+      if (Math.abs(o.x - game.x) > o.hw + FLY.r) continue;
+      if (Math.abs(o.z) > o.hd + FLY.r) continue;
+      if (game.y - FLY.r < o.h) return endGame(false, o.c);
+    }
+    aimChaseCam(0);
+  }
+
+  function endGame(win, c, reason) {
+    if (game.state === 'dead') return;
+    game.state = 'dead';
+    if (game.score > game.best) game.best = game.score;
+    const total = game.commitXs.length;
+    if (win) {
+      overBody.innerHTML = `<div class="over-title">you reached <b>HEAD</b> &#10022;</div>` +
+        `<div class="over-sub">flew clean through all ${total} commits of ${esc(data.repo)}</div>`;
+    } else {
+      const hit = c
+        ? `crashed into <b>${esc((c.subject || 'a commit').slice(0, 46))}</b><br><span class="mono">${esc(c.hash)} &middot; ${esc(c.author)}</span>`
+        : (reason === 'sky' ? 'flew off into the night' : 'down you went');
+      overBody.innerHTML = `<div class="over-title">${hit}</div>` +
+        `<div class="over-sub">cleared ${game.score} of ${total} commits${game.score >= game.best && game.score > 0 ? ' &middot; best yet' : ''}</div>`;
+    }
+    gameHud.classList.add('hidden');
+    overEl.classList.remove('hidden');
+  }
+
+  function exitGame() {
+    game.state = 'idle';
+    if (flyer) flyer.visible = false;
+    overEl.classList.add('hidden');
+    gameHud.classList.add('hidden');
+    document.body.classList.remove('playing');
+    controls.enabled = true;
+    resetCamera();
+  }
+
+  playBtn.addEventListener('click', startGame);
+  document.getElementById('over-again').addEventListener('click', startGame);
+  document.getElementById('over-exit').addEventListener('click', exitGame);
+  window.addEventListener('pointerdown', () => { if (game.state === 'ready' || game.state === 'playing') flap(); });
+
   // -------- key handlers --------
   window.addEventListener('keydown', (e) => {
+    if (game.state === 'ready' || game.state === 'playing') {
+      if (e.code === 'Space') { e.preventDefault(); flap(); }
+      else if (e.key === 'Escape') exitGame();
+      return;
+    }
+    if (game.state === 'dead') {
+      if (e.key === 'Escape') exitGame();
+      else if (e.code === 'Space') startGame();
+      return;
+    }
     if (!gate.classList.contains('hidden')) { if (e.key === 'Escape') closeGate(); return; }
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
     if (e.key === 'r' || e.key === 'R') resetCamera();
@@ -813,13 +1017,15 @@ import { GammaCorrectionShader } from 'three/addons/shaders/GammaCorrectionShade
   function animate() {
     requestAnimationFrame(animate);
     const t = clock.getElapsedTime();
+    const dt = Math.min(0.05, t - lastFrameT); lastFrameT = t;
     // twinkle the distant windows (layers pulse out of phase) + blink the beacons
     for (let i = 0; i < twinkleLayers.length; i++) {
       const L = twinkleLayers[i];
       L.mat.opacity = 0.62 + 0.34 * Math.sin(t * L.speed + L.phase);
     }
     if (beaconLayer) beaconLayer.mat.opacity = Math.sin(t * 2.2) > 0.55 ? 1.0 : 0.07;
-    controls.update();
+    if (game.state === 'playing' || game.state === 'ready') updateGame(dt);
+    else controls.update();
     composer.render();
   }
   animate();
