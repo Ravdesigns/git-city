@@ -57,6 +57,31 @@
   }
   button:hover .arrow { transform: translateX(2px); }
 
+  /* ---- first-load loader: a tiny skyline rising ---- */
+  #loader {
+    position: fixed; inset: 0; z-index: 100;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px;
+    background: var(--bg);
+    transition: opacity 0.6s var(--ease), visibility 0.6s;
+  }
+  #loader.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+  .ld-bars { display: flex; align-items: flex-end; gap: 5px; height: 44px; }
+  .ld-bars i {
+    width: 7px; height: 100%; border-radius: 3px; background: var(--accent);
+    transform-origin: bottom; transform: scaleY(0.25);
+    animation: ld-rise 1.05s var(--ease) infinite;
+    box-shadow: 0 0 12px color-mix(in oklch, var(--accent) 50%, transparent);
+  }
+  .ld-bars i:nth-child(2) { animation-delay: 0.12s; }
+  .ld-bars i:nth-child(3) { animation-delay: 0.24s; }
+  .ld-bars i:nth-child(4) { animation-delay: 0.36s; }
+  .ld-bars i:nth-child(5) { animation-delay: 0.48s; }
+  .ld-bars i:nth-child(6) { animation-delay: 0.60s; }
+  .ld-bars i:nth-child(7) { animation-delay: 0.72s; }
+  @keyframes ld-rise { 0%, 100% { transform: scaleY(0.25); opacity: 0.5; } 50% { transform: scaleY(1); opacity: 1; } }
+  .ld-name { font-size: 12px; font-weight: 700; letter-spacing: 0.36em; text-transform: uppercase; color: var(--t-400); }
+  @media (prefers-reduced-motion: reduce) { .ld-bars i { animation: none; transform: scaleY(0.7); } }
+
   #hud {
     position: fixed; top: var(--edge); left: var(--edge); max-width: 42vw;
     font-size: 11px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase;
@@ -288,6 +313,10 @@
 <script defer src="/_vercel/insights/script.js"></script>
 </head>
 <body>
+<div id="loader">
+  <div class="ld-bars"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+  <div class="ld-name">git-city</div>
+</div>
 <div id="hud">
   <div class="accent" id="repo-label">loading…</div>
   <div id="commit-count"></div>
@@ -378,6 +407,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { GammaCorrectionShader } from 'three/addons/shaders/GammaCorrectionShader.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
 (function () {
   let data = window.COMMIT_DATA || { repo: '—', commits: [] };
@@ -425,8 +455,13 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.15;
+  renderer.toneMappingExposure = 1.0;
   document.body.appendChild(renderer.domElement);
+
+  // image-based lighting → premium, glassy reflections on every surface
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  pmrem.dispose();
 
   // -------- post-processing: bloom for cinematic city glow --------
   const composer = new EffectComposer(renderer);
@@ -459,7 +494,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
   // -------- ground --------
   const groundGeo = new THREE.PlaneGeometry(16000, 16000, 1, 1);
   const groundMat = new THREE.MeshStandardMaterial({
-    color: 0x0a1810, roughness: 0.9, metalness: 0.05
+    color: 0x0a1810, roughness: 0.55, metalness: 0.3, envMapIntensity: 0.3
   });
   const ground = new THREE.Mesh(groundGeo, groundMat);
   ground.rotation.x = -Math.PI / 2;
@@ -556,10 +591,11 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
         const color = colorFor(f, c, mode);
         const mat = new THREE.MeshStandardMaterial({
           color: color,
-          roughness: 0.5,
-          metalness: 0.18,
+          roughness: 0.38,
+          metalness: 0.5,
           emissive: color,
-          emissiveIntensity: 0.16
+          emissiveIntensity: 0.14,
+          envMapIntensity: 0.3
         });
         const mesh = new THREE.Mesh(geo, mat);
         mesh.position.set(x, y, z);
@@ -653,7 +689,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
   const backdropGroup = new THREE.Group();
   scene.add(backdropGroup);
   const backdropTowerMat = new THREE.MeshStandardMaterial({
-    color: 0x07130b, roughness: 0.93, metalness: 0.0, emissive: 0x0c2213, emissiveIntensity: 0.35
+    color: 0x07130b, roughness: 0.93, metalness: 0.0, emissive: 0x0c2213, emissiveIntensity: 0.35, envMapIntensity: 0.1
   });
   const twinkleLayers = [];   // window-light point clouds, animated out of phase
   let beaconLayer = null;     // blinking red aircraft-warning lights
@@ -961,12 +997,14 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
         mixer = new THREE.AnimationMixer(model);
         mixer.clipAction(gltf.animations[0]).play();
       }
+      reveal();
     }, undefined, () => {
       // fallback: a glowing orb if the model fails to load
       flyer.add(new THREE.Mesh(
         new THREE.IcosahedronGeometry(FLY.r, 1),
         new THREE.MeshStandardMaterial({ color: 0x9ced63, emissive: 0x5fd23e, emissiveIntensity: 1.0, roughness: 0.3, metalness: 0.2 })
       ));
+      reveal();
     });
   }
 
@@ -1169,13 +1207,20 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
   });
 
   // dress the world + frame the demo city on load, then greet first-time visitors
+  // first paint: hide the loader, then bring the repo card up (every visit)
+  let revealed = false;
+  function reveal() {
+    if (revealed) return;
+    revealed = true;
+    document.getElementById('loader').classList.add('hidden');
+    openGate();
+  }
+
   rebuildBackdrop();
   resetCamera();
   updateLegend();
   initFlyer();
-  let seen = false;
-  try { seen = !!localStorage.getItem('gc_seen'); } catch (e) {}
-  if (!seen) openGate();
+  setTimeout(reveal, 4500);   // safety net so the loader never hangs
 
   // -------- resize --------
   window.addEventListener('resize', () => {
