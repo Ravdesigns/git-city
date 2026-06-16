@@ -408,6 +408,7 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { GammaCorrectionShader } from 'three/addons/shaders/GammaCorrectionShader.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 
 (function () {
   let data = window.COMMIT_DATA || { repo: '—', commits: [] };
@@ -458,10 +459,14 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
   renderer.toneMappingExposure = 1.0;
   document.body.appendChild(renderer.domElement);
 
-  // image-based lighting → premium, glassy reflections on every surface
+  // image-based lighting → glassy reflections; upgrades to a real night sky once it loads
   const pmrem = new THREE.PMREMGenerator(renderer);
-  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-  pmrem.dispose();
+  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;   // instant baseline
+  new RGBELoader().load('lib/env/night.hdr', (hdr) => {
+    hdr.mapping = THREE.EquirectangularReflectionMapping;
+    scene.environment = pmrem.fromEquirectangular(hdr).texture;               // real CC0 night sky (Poly Haven)
+    hdr.dispose(); pmrem.dispose();
+  }, undefined, () => { pmrem.dispose(); });
 
   // -------- post-processing: bloom for cinematic city glow --------
   const composer = new EffectComposer(renderer);
@@ -591,11 +596,11 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
         const color = colorFor(f, c, mode);
         const mat = new THREE.MeshStandardMaterial({
           color: color,
-          roughness: 0.38,
-          metalness: 0.5,
+          roughness: 0.4,
+          metalness: 0.4,
           emissive: color,
           emissiveIntensity: 0.14,
-          envMapIntensity: 0.3
+          envMapIntensity: 0.55
         });
         const mesh = new THREE.Mesh(geo, mat);
         mesh.position.set(x, y, z);
@@ -986,12 +991,12 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
       const model = gltf.scene;
       const box = new THREE.Box3().setFromObject(model);
       const size = new THREE.Vector3(); box.getSize(size);
-      model.scale.setScalar(10 / Math.max(size.x, size.y, size.z));       // auto-fit to ~10u wingspan
+      model.scale.setScalar(11 / Math.max(size.x, size.y, size.z));       // auto-fit to ~11u wingspan
       const c = new THREE.Vector3(); box.getCenter(c).multiplyScalar(model.scale.x);
       model.position.set(-c.x, -c.y, -c.z);                               // centre on the rig origin
       const wrap = new THREE.Group();
       wrap.add(model);
-      wrap.rotation.y = Math.PI;                                          // align nose to rig -Z (tuned via preview)
+      wrap.rotation.y = 0;                                                // model nose is -Z; rig -Z faces velocity, so it flies head-first
       flyer.add(wrap);
       if (gltf.animations && gltf.animations.length) {
         mixer = new THREE.AnimationMixer(model);
