@@ -382,6 +382,12 @@
       <button class="chip" type="button" data-repo="mrdoob/three.js">mrdoob/three.js</button>
       <button class="chip" type="button" data-repo="facebook/react">facebook/react</button>
     </div>
+    <div class="gate-examples">
+      <span>or a giant</span>
+      <button class="chip" type="button" data-repo="torvalds/linux">torvalds/linux</button>
+      <button class="chip" type="button" data-repo="microsoft/vscode">microsoft/vscode</button>
+      <button class="chip" type="button" data-repo="kubernetes/kubernetes">kubernetes/kubernetes</button>
+    </div>
     <div id="gate-status" class="gate-status"></div>
     <button id="gate-skip" class="gate-skip" type="button">explore the demo city instead &rarr;</button>
   </div>
@@ -991,7 +997,7 @@ import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
       const model = gltf.scene;
       const box = new THREE.Box3().setFromObject(model);
       const size = new THREE.Vector3(); box.getSize(size);
-      model.scale.setScalar(11 / Math.max(size.x, size.y, size.z));       // auto-fit to ~11u wingspan
+      model.scale.setScalar(15 / Math.max(size.x, size.y, size.z));       // auto-fit to ~15u wingspan (reads well side-on)
       const c = new THREE.Vector3(); box.getCenter(c).multiplyScalar(model.scale.x);
       model.position.set(-c.x, -c.y, -c.z);                               // centre on the rig origin
       const wrap = new THREE.Group();
@@ -1028,15 +1034,20 @@ import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
     else flyer.position.set(game.x, yy, game.lane);
   }
 
+  // 2D-style side-scroller camera (flappy-bird feel): perpendicular to the run,
+  // fixed height so the bird moves up/down on screen while the city scrolls past
   function aimChaseCam(snap) {
+    const camY = game.ceiling * 0.5 + 4;
+    const side = game.ceiling * 1.5 + 26;     // perpendicular distance: frames the full corridor height
+    const ahead = side * 0.16;                // bird sits left-of-centre; obstacles approach from the right
     if (game.axis === 'z') {
-      _camP.set(game.lane + 11, game.y + 17, game.x - 52);
-      _camA.set(game.lane, game.y + 3, game.x + 30);
+      _camP.set(game.lane - side, camY, game.x + ahead);
+      _camA.set(game.lane, camY, game.x + ahead);
     } else {
-      _camP.set(game.x - 52, game.y + 17, game.lane + 11);
-      _camA.set(game.x + 30, game.y + 3, game.lane);
+      _camP.set(game.x + ahead, camY, game.lane + side);
+      _camA.set(game.x + ahead, camY, game.lane);
     }
-    camera.position.lerp(_camP, snap ? 1 : 0.12);
+    camera.position.lerp(_camP, snap ? 1 : 0.14);
     camera.lookAt(_camA);
   }
 
